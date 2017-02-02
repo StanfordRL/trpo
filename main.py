@@ -8,10 +8,15 @@ import logging
 import gym
 from gym import envs, scoreboard
 from gym.spaces import Discrete, Box
-import prettytensor as pt
 from space_conversion import SpaceConversionEnv
+
+from IPython import embed
+
 import tempfile
 import sys
+
+
+from keras.layers import Input, Dense
 
 class TRPOAgent(object):
 
@@ -33,6 +38,7 @@ class TRPOAgent(object):
         self.session = tf.Session()
         self.end_count = 0
         self.train = True
+        # curr_obs, prev_obs, prev_act
         self.obs = obs = tf.placeholder(
             dtype, shape=[
                 None, 2 * env.observation_space.shape[0] + env.action_space.n], name="obs")
@@ -43,12 +49,14 @@ class TRPOAgent(object):
         self.oldaction_dist = oldaction_dist = tf.placeholder(dtype, shape=[None, env.action_space.n], name="oldaction_dist")
 
         # Create neural network.
-        action_dist_n, _ = (pt.wrap(self.obs).
-                            fully_connected(64, activation_fn=tf.nn.tanh).
-                            softmax_classifier(env.action_space.n))
+
+        fc_out = Dense(64, activation='tanh', name='fc')(self.obs)
+        action_dist_n = Dense(env.action_space.n, activation='softmax', name='action_out')(fc_out)
+
         eps = 1e-6
         self.action_dist_n = action_dist_n
-        N = tf.shape(obs)[0]
+        N = tf.shape(obs)[0] # batch size
+        # gather action p from each sample in a batch
         p_n = slice_2d(action_dist_n, tf.range(0, N), action)
         oldp_n = slice_2d(oldaction_dist, tf.range(0, N), action)
         ratio_n = p_n / oldp_n
@@ -79,7 +87,7 @@ class TRPOAgent(object):
         self.gf = GetFlat(self.session, var_list)
         self.sff = SetFromFlat(self.session, var_list)
         self.vf = VF(self.session)
-        self.session.run(tf.initialize_all_variables())
+        self.session.run(tf.global_variables_initializer())
 
     def act(self, obs, *args):
         obs = np.expand_dims(obs, 0)
@@ -202,14 +210,7 @@ else:
     task = "RepeatCopy-v0"
 
 env = envs.make(task)
-env.monitor.start(training_dir)
-
 env = SpaceConversionEnv(env, Box, Discrete)
 
 agent = TRPOAgent(env)
 agent.learn()
-env.monitor.close()
-gym.upload(training_dir,
-           algorithm_id='trpo_ff')
-
-

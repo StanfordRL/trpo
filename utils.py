@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import random
 import scipy.signal
-import prettytensor as pt
+from keras.layers import Dense
 
 seed = 1
 random.seed(seed)
@@ -44,6 +44,7 @@ def rollout(env, agent, max_pathlength, n_timesteps):
     return paths
 
 
+# value function
 class VF(object):
     coeffs = None
 
@@ -55,15 +56,14 @@ class VF(object):
         print(shape)
         self.x = tf.placeholder(tf.float32, shape=[None, shape], name="x")
         self.y = tf.placeholder(tf.float32, shape=[None], name="y")
-        self.net = (pt.wrap(self.x).
-                    fully_connected(64, activation_fn=tf.nn.relu).
-                    fully_connected(64, activation_fn=tf.nn.relu).
-                    fully_connected(1))
+        fc1 = Dense(64, activation='relu')(self.x)
+        fc2 = Dense(64, activation='relu')(fc1)
+        self.net = Dense(1)(fc2)
         self.net = tf.reshape(self.net, (-1, ))
         l2 = (self.net - self.y) * (self.net - self.y)
         self.train = tf.train.AdamOptimizer().minimize(l2)
-        self.session.run(tf.initialize_all_variables())
-        
+        self.session.run(tf.global_variables_initializer())
+
 
     def _features(self, path):
         o = path["obs"].astype('float32')
@@ -84,7 +84,7 @@ class VF(object):
 
     def predict(self, path):
         if self.net is None:
-            return np.zeros(len(path["rewards"])) 
+            return np.zeros(len(path["rewards"]))
         else:
             ret = self.session.run(self.net, {self.x: self._features(path)})
             return np.reshape(ret, (ret.shape[0], ))
@@ -116,8 +116,8 @@ def numel(x):
 
 def flatgrad(loss, var_list):
     grads = tf.gradients(loss, var_list)
-    return tf.concat(0, [tf.reshape(grad, [numel(v)])
-                         for (v, grad) in zip(var_list, grads)])
+    return tf.concat([tf.reshape(grad, [numel(v)])
+                         for (v, grad) in zip(var_list, grads)], 0)
 
 
 class SetFromFlat(object):
@@ -151,7 +151,7 @@ class GetFlat(object):
 
     def __init__(self, session, var_list):
         self.session = session
-        self.op = tf.concat(0, [tf.reshape(v, [numel(v)]) for v in var_list])
+        self.op = tf.concat([tf.reshape(v, [numel(v)]) for v in var_list], 0)
 
     def __call__(self):
         return self.op.eval(session=self.session)
